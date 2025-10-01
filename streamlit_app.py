@@ -1,69 +1,85 @@
 import streamlit as st
+import requests
+import os
 
-st.title("🎈 내 첫번째 앱")
-st.write(
-    "지크지온!! "
+# 👉 환경변수에 GOOGLE_API_KEY 저장해 두세요 (export GOOGLE_API_KEY="YOUR_KEY")
+API_KEY = os.getenv("GOOGLE_API_KEY")
 
-)
-st.write("")
-st.image("https://mblogthumb-phinf.pstatic.net/data33/2008/4/17/49/24_berial666.jpg?type=w420")# st.markdown(): 마크다운 문법 지원 (굵게, 기울임, 목록 등)
+st.set_page_config(page_title="인물 검색기 (Google 기반)", layout="centered")
 
-st.markdown("**굵은 텍스트**, *기울임 텍스트*")
-st.markdown("""- 첫 번째 항목
-- 두 번째 항목
-- 여러 줄을 쓸 때""")
+# --- UI 제목 ---
+st.title("🔎 인물 검색기 (Google 기반)")
+st.write("찾고 싶은 인물의 이름을 입력해 보세요.")
+st.caption("Google 검색 기반으로 최신 정보를 제공합니다.")
 
-# 페이지 구조용 제목 출력
-st.title("저녁 메뉴 추천")
-st.header("메뉴 추천 입니다")
-st.subheader("묽은 염산,우라늄")
+# --- 입력 ---
+query = st.text_input("인물 이름 입력", placeholder="예: 홍길동, Elon Musk")
 
-# 수평선 (구분선) 출력
-st.markdown("---")  # 또는
-st.divider()        # Streamlit >= 1.22 이상에서 가능
+if st.button("검색"):
+    if not query.strip():
+        st.warning("검색할 인물의 이름을 입력해주세요.")
+    elif not API_KEY:
+        st.error("❌ GOOGLE_API_KEY 환경 변수가 설정되지 않았습니다.")
+    else:
+        with st.spinner("검색 중..."):
+            try:
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key={API_KEY}"
 
-# LaTeX 수식 출력
-st.latex(r"E = mc^2")
-st.latex(r"\int_{a}^{b} x^2 dx = \frac{b^3 - a^3}{3}")
+                system_prompt = (
+                    "You are an encyclopedia. Based on the user's query for a person's name, "
+                    "find information using Google Search and provide a concise, one-paragraph summary. "
+                    "The summary should include their primary occupation and one or two major achievements. "
+                    "Respond ONLY with a JSON object that follows the specified schema."
+                )
 
-# 정보성 메시지 박스
-st.info("ℹ️ 정보 메시지입니다.")
-st.warning("⚠️ 경고 메시지입니다.")
-st.success("✅ 성공 메시지입니다.")
-st.error("❌ 오류 메시지입니다.")
+                payload = {
+                    "contents": [{"parts": [{"text": f"Who is {query}?"}]}],
+                    "tools": [{"google_search": {}}],
+                    "systemInstruction": {"parts": [{"text": system_prompt}]},
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "responseSchema": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "name": {
+                                    "type": "STRING",
+                                    "description": "The person's full name."
+                                },
+                                "occupation": {
+                                    "type": "STRING",
+                                    "description": "The person's primary occupation or title."
+                                },
+                                "description": {
+                                    "type": "STRING",
+                                    "description": "A concise, single-paragraph summary of the person."
+                                }
+                            },
+                            "required": ["name", "occupation", "description"]
+                        }
+                    }
+                }
 
-# 이미지 출력
-st.image("https://static.streamlit.io/examples/cat.jpg", caption="귀여운 고양이", use_container_width=True)
-st.image("https://via.placeholder.com/300", caption="예시 이미지")
+                response = requests.post(api_url, json=payload)
+                response.raise_for_status()
+                result = response.json()
 
-# 영상 출력
-st.video("https://www.youtube.com/watch?v=4nU-Fp96p8E")
-st.video("https://www.youtube.com/watch?v=B1J6Ou4q8vE")
+                candidate = result.get("candidates", [{}])[0]
+                if candidate and "content" in candidate:
+                    text_data = candidate["content"]["parts"][0]["text"]
+                    person_data = eval(text_data)  # JSON 문자열 → dict 변환
 
-# 오디오 출력
-st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
-st.audio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
+                    # --- 결과 표시 ---
+                    st.subheader(person_data["name"])
+                    st.markdown(f"**직업:** {person_data['occupation']}")
+                    st.write(person_data["description"])
 
-# 지도 출력
-import pandas as pd
-df = pd.DataFrame({"lat": [37.5], "lon": [127.0]})
-st.map(df, zoom=12)
+                    # 임시 이미지 (placehold.co)
+                    img_url = f"https://placehold.co/150x150/E2E8F0/475569?text={person_data['name']}"
+                    st.image(img_url, caption=person_data["name"])
 
-# 데이터프레임 테이블 출력
-st.dataframe(pd.DataFrame({
-    "이름": ["홍길동", "김철수"],
-    "점수": [85, 92]
-}))
+                else:
+                    st.info(f"'{query}'에 대한 검색 결과가 없습니다.")
 
-# 버튼 클릭 여부에 따라 실행
-if st.button("클릭하세요"):
-    st.write("앙")
+            except Exception as e:
+                st.error(f"오류 발생: {e}")
 
-    # 체크 여부에 따라 분기
-agree = st.checkbox("위 조건에 동의합니다")
-if agree:
-    st.write("앙")
-
-    # 범위 내 숫자 슬라이드 선택
-level = st.slider("볼륨", 1, 10, 5)
-st.write("볼륨:", level)
